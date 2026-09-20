@@ -1,11 +1,18 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
 import type { AirCompressorEntry } from "../../types/airCompressor";
 import { AirCompressorHeader } from "./AirCompressorHeader";
 import { AirCompressorRowInput } from "./AirCompressorRowInput";
 import { AirCompressorSummary } from "./AirCompressorSummary";
 import { calculateAirCompressorStats } from "../../utils/airCompressorCalculations";
+import { TimeFilterTabs } from "../common/TimeFilterTabs";
+import { isDateInPeriod, TimeFilterPeriod } from "../../utils/dateFilters";
 import API from "../../utils/api";
+
+interface ExtendedAirCompressorEntry extends AirCompressorEntry {
+  date?: string;
+  shift?: string;
+}
 
 export const AirCompressorTable: React.FC = () => {
   const { user } = useAuth();
@@ -13,35 +20,24 @@ export const AirCompressorTable: React.FC = () => {
 
   const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [shift, setShift] = useState<string>(defaultShift);
-  const [rows, setRows] = useState<AirCompressorEntry[]>([]);
+  const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
+  const [allLogs, setAllLogs] = useState<any[]>([]);
+  const [rows, setRows] = useState<ExtendedAirCompressorEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("");
 
+  // 1. Fetch Sarv Readings (Sarv periods che count initial load varach disave mhanun)
   const fetchLogs = async () => {
     setLoading(true);
     setStatusMessage("");
     try {
       const res = await API.get("/plant/logs", {
         params: {
-          blockType: "AIR_COMPRESSOR",
-          date: date
+          blockType: "AIR_COMPRESSOR"
         }
       });
-
-      const logs = res.data.filter((entry: any) => entry.shift === shift);
-      
-      const mappedRows: AirCompressorEntry[] = logs.map((entry: any) => ({
-        id: entry._id,
-        time: entry.readingTime,
-        oilPressure: entry.data?.oilPressure ?? "",
-        airPressure: entry.data?.airPressure ?? "",
-        temperature: entry.data?.temperature ?? "",
-        airReceiverPressure: entry.data?.airReceiverPressure ?? "",
-        operatorSign: entry.operatorName || ""
-      }));
-
-      setRows(mappedRows);
+      setAllLogs(res.data);
     } catch (err: any) {
       console.error("Fetch Logs Error:", err);
       setStatusMessage("Failed to load logs from server.");
@@ -52,7 +48,46 @@ export const AirCompressorTable: React.FC = () => {
 
   useEffect(() => {
     fetchLogs();
-  }, [date, shift]);
+  }, []);
+
+  // 2. Selected period, date ani shift nusar rows filter karne
+  useEffect(() => {
+    const filtered = allLogs.filter((entry: any) => {
+      const matchesShift = user?.role === "admin" ? entry.shift === shift : true;
+      if (activePeriod === "today") {
+        return matchesShift && entry.date === date;
+      }
+      return matchesShift && isDateInPeriod(entry.date, activePeriod);
+    });
+
+    const mappedRows: ExtendedAirCompressorEntry[] = filtered.map((entry: any) => ({
+      id: entry._id,
+      date: entry.date,
+      shift: entry.shift,
+      time: entry.readingTime,
+      oilPressure: entry.data?.oilPressure ?? "",
+      airPressure: entry.data?.airPressure ?? "",
+      temperature: entry.data?.temperature ?? "",
+      airReceiverPressure: entry.data?.airReceiverPressure ?? "",
+      operatorSign: entry.operatorName || ""
+    }));
+
+    setRows(mappedRows);
+  }, [allLogs, shift, activePeriod, date, user?.role]);
+
+  // 3. Initial load varach right counts calculate karne
+  const periodCounts = useMemo(() => {
+    const shiftFiltered = allLogs.filter((entry: any) =>
+      user?.role === "admin" ? entry.shift === shift : true
+    );
+
+    return {
+      today: shiftFiltered.filter((r) => isDateInPeriod(r.date, "today")).length,
+      week: shiftFiltered.filter((r) => isDateInPeriod(r.date, "week")).length,
+      month: shiftFiltered.filter((r) => isDateInPeriod(r.date, "month")).length,
+      year: shiftFiltered.filter((r) => isDateInPeriod(r.date, "year")).length,
+    };
+  }, [allLogs, shift, user?.role]);
 
   const handleRowChange = (id: string, field: keyof AirCompressorEntry, value: any) => {
     setRows(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
@@ -63,6 +98,8 @@ export const AirCompressorTable: React.FC = () => {
       ...prev,
       {
         id: `temp-${Date.now()}`,
+        date: date,
+        shift: user?.role === "admin" ? shift : user?.assignedShift,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         oilPressure: "",
         airPressure: "",
@@ -73,7 +110,6 @@ export const AirCompressorTable: React.FC = () => {
     ]);
   };
 
-  // Delete Row
   const handleRemoveRow = async (id: string) => {
     if (user?.role !== "admin") return;
 
@@ -87,13 +123,13 @@ export const AirCompressorTable: React.FC = () => {
     try {
       await API.delete(`/plant/logs/${id}`);
       setRows(prev => prev.filter(row => row.id !== id));
+      setAllLogs(prev => prev.filter((r: any) => r._id !== id));
       setStatusMessage("Entry deleted successfully!");
     } catch (err: any) {
       alert("Delete failed: " + (err.response?.data?.message || err.message));
     }
   };
 
-  // Admin Edit Save Handler (PUT API)
   const handleSaveEdit = async (id: string, updatedData: Partial<AirCompressorEntry>) => {
     try {
       await API.put(`/plant/logs/${id}`, {
@@ -113,7 +149,6 @@ export const AirCompressorTable: React.FC = () => {
     }
   };
 
-  // Save New Rows to DB
   const handleSaveAll = async () => {
     setSaving(true);
     setStatusMessage("");
@@ -130,7 +165,7 @@ export const AirCompressorTable: React.FC = () => {
         await API.post("/plant/logs", {
           blockType: "AIR_COMPRESSOR",
           shift: user?.role === "admin" ? shift : user?.assignedShift,
-          date,
+          date: entry.date || date,
           readingTime: entry.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           data: {
             oilPressure: entry.oilPressure,
@@ -155,54 +190,68 @@ export const AirCompressorTable: React.FC = () => {
   const hasUnsavedRows = rows.some(r => r.id.startsWith("temp-"));
 
   return (
-    <div className="p-6 bg-white shadow rounded-lg border border-slate-200">
-      <div className="flex justify-between items-center mb-4">
+    <div className="p-6 bg-white shadow-sm rounded-2xl border border-slate-200/80">
+      <div className="flex flex-wrap justify-between items-center mb-5 gap-3 pb-4 border-b border-slate-100">
         <div>
-          <h2 className="text-xl font-black text-slate-800 tracking-tight">OPERATING RECORDS OF AIR COMPRESSOR</h2>
+          <h2 className="text-lg font-black text-slate-800 tracking-tight">
+            OPERATING RECORDS OF AIR COMPRESSOR
+          </h2>
           <p className="text-xs text-slate-500">Smruthi Organics Limited - Plant Maintenance Log</p>
         </div>
-        {statusMessage && (
-          <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded border border-indigo-200">
-            {statusMessage}
-          </span>
-        )}
+
+        <div className="flex items-center gap-3">
+          <TimeFilterTabs
+            activePeriod={activePeriod}
+            onPeriodChange={setActivePeriod}
+            counts={periodCounts}
+          />
+          {statusMessage && (
+            <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200">
+              {statusMessage}
+            </span>
+          )}
+        </div>
       </div>
-      
+
       <AirCompressorHeader date={date} setDate={setDate} shift={shift} setShift={setShift} />
-      
+
       {loading ? (
-        <div className="text-center py-8 text-xs text-slate-500">Loading readings from database...</div>
+        <div className="text-center py-10 text-xs text-slate-500 font-medium">Loading readings from database...</div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto mt-4 rounded-xl border border-slate-200/80">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-100 text-slate-700">
-                <th className="p-2 border">Time</th>
-                <th className="p-2 border">Oil Press (Kg/cm²)</th>
-                <th className="p-2 border">Air Press (Kg/cm²)</th>
-                <th className="p-2 border">Temp (°C)</th>
-                <th className="p-2 border">Air Rec. Press (Kg/cm²)</th>
-                <th className="p-2 border">Sign</th>
+              <tr className="bg-slate-50 text-slate-700 font-black uppercase text-[10px] tracking-wider border-b border-slate-200/80">
+                <th className="p-3 border-r">Time</th>
+                <th className="p-3 border-r">Oil Press (Kg/cm²)</th>
+                <th className="p-3 border-r">Air Press (Kg/cm²)</th>
+                <th className="p-3 border-r">Temp (°C)</th>
+                <th className="p-3 border-r">Air Rec. Press (Kg/cm²)</th>
+                <th className="p-3 border-r">Sign</th>
                 {user?.role === "admin" && (
-                  <th className="p-2 border text-center">Actions</th>
+                  <th className="p-3 text-center">Actions</th>
                 )}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={user?.role === "admin" ? 7 : 6} className="text-center p-4 text-slate-400 text-xs">
-                    No readings found for Date: {date} & Shift: {shift}. Click "+ Add Reading Row" to start.
+                  <td
+                    colSpan={user?.role === "admin" ? 7 : 6}
+                    className="text-center py-8 text-slate-400 text-xs"
+                  >
+                    No readings found for Period: <span className="font-bold capitalize">{activePeriod}</span> (Shift {shift}).
+                    {activePeriod === "today" && ' Click "+ Add Reading Row" to start.'}
                   </td>
                 </tr>
               ) : (
                 rows.map(row => (
-                  <AirCompressorRowInput 
-                    key={row.id} 
-                    row={row} 
+                  <AirCompressorRowInput
+                    key={row.id}
+                    row={row}
                     isNewRow={row.id.startsWith("temp-")}
-                    onChange={handleRowChange} 
-                    onRemove={handleRemoveRow} 
+                    onChange={handleRowChange}
+                    onRemove={handleRemoveRow}
                     onSaveEdit={handleSaveEdit}
                   />
                 ))
@@ -212,24 +261,26 @@ export const AirCompressorTable: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center gap-3 mt-4">
-        <button 
-          onClick={handleAddRow} 
-          className="px-4 py-2 bg-slate-800 text-white text-xs font-semibold rounded-md shadow hover:bg-slate-900 transition"
-        >
-          + Add Reading Row
-        </button>
-
-        {hasUnsavedRows && (
-          <button 
-            onClick={handleSaveAll} 
-            disabled={saving}
-            className="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-md shadow hover:bg-emerald-700 transition disabled:opacity-50"
+      {activePeriod === "today" && (
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            onClick={handleAddRow}
+            className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl shadow-sm transition"
           >
-            {saving ? "Saving..." : "💾 Save New Readings to Database"}
+            + Add Reading Row
           </button>
-        )}
-      </div>
+
+          {hasUnsavedRows && (
+            <button
+              onClick={handleSaveAll}
+              disabled={saving}
+              className="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "💾 Save New Readings to Database"}
+            </button>
+          )}
+        </div>
+      )}
 
       <AirCompressorSummary summary={summary} />
     </div>

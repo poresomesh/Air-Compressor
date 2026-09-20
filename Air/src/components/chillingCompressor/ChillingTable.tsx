@@ -1,10 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
 import type { ChillingEntry } from "../../types/chillingCompressor";
 import { ChillingRowInput } from "./ChillingRowInput";
 import { ChillingSummary } from "./ChillingSummary";
 import { calculateChillingStats } from "../../utils/chillingCompressorCalculations";
+import { TimeFilterTabs } from "../common/TimeFilterTabs";
+import { isDateInPeriod, TimeFilterPeriod } from "../../utils/dateFilters";
 import API from "../../utils/api";
+
+interface ExtendedChillingEntry extends ChillingEntry {
+  date?: string;
+  shift?: string;
+}
 
 export const ChillingTable: React.FC = () => {
   const { user } = useAuth();
@@ -12,48 +19,24 @@ export const ChillingTable: React.FC = () => {
 
   const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [shift, setShift] = useState<string>(defaultShift);
-  const [rows, setRows] = useState<ChillingEntry[]>([]);
+  const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
+  const [allLogs, setAllLogs] = useState<any[]>([]);
+  const [rows, setRows] = useState<ExtendedChillingEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("");
 
-  // 1. Fetch Readings from Backend API
+  // 1. Fetch Sarv Chilling Logs (Right counts sathi single date param kadhla)
   const fetchLogs = async () => {
     setLoading(true);
     setStatusMessage("");
     try {
       const res = await API.get("/plant/logs", {
         params: {
-          blockType: "CHILLING_COMPRESSOR",
-          date: date
+          blockType: "CHILLING_COMPRESSOR"
         }
       });
-
-      const logs = res.data.filter((entry: any) => entry.shift === shift);
-
-      const mappedRows: ChillingEntry[] = logs.map((entry: any) => ({
-        id: entry._id,
-        time: entry.readingTime,
-        currentAmp: entry.data?.currentAmp ?? "",
-        spPressure: entry.data?.spPressure ?? "",
-        opPressure: entry.data?.opPressure ?? "",
-        dpPressure: entry.data?.dpPressure ?? "",
-        dischTemp: entry.data?.dischTemp ?? "",
-        oilTemp: entry.data?.oilTemp ?? "",
-        condenserInlet: entry.data?.condenserInlet ?? "",
-        condenserOutlet: entry.data?.condenserOutlet ?? "",
-        chillerInlet: entry.data?.chillerInlet ?? "",
-        chillerOutlet: entry.data?.chillerOutlet ?? "",
-        brineTankTemp: entry.data?.brineTankTemp ?? "",
-        brineLevel: entry.data?.brineLevel ?? "",
-        runHours: entry.data?.runHours ?? "",
-        kwh: entry.data?.kwh ?? "",
-        specificGravity: entry.data?.specificGravity ?? "",
-        loadingReactor: entry.data?.loadingReactor ?? "",
-        operatorSign: entry.operatorName || ""
-      }));
-
-      setRows(mappedRows);
+      setAllLogs(res.data);
     } catch (err: any) {
       console.error("Fetch Chilling Logs Error:", err);
       setStatusMessage("Failed to load chilling logs from server.");
@@ -64,7 +47,58 @@ export const ChillingTable: React.FC = () => {
 
   useEffect(() => {
     fetchLogs();
-  }, [date, shift]);
+  }, []);
+
+  // 2. Filter rows based on date, period & shift
+  useEffect(() => {
+    const filtered = allLogs.filter((entry: any) => {
+      const matchesShift = user?.role === "admin" ? entry.shift === shift : true;
+      if (activePeriod === "today") {
+        return matchesShift && entry.date === date;
+      }
+      return matchesShift && isDateInPeriod(entry.date, activePeriod);
+    });
+
+    const mappedRows: ExtendedChillingEntry[] = filtered.map((entry: any) => ({
+      id: entry._id,
+      date: entry.date,
+      shift: entry.shift,
+      time: entry.readingTime,
+      currentAmp: entry.data?.currentAmp ?? "",
+      spPressure: entry.data?.spPressure ?? "",
+      opPressure: entry.data?.opPressure ?? "",
+      dpPressure: entry.data?.dpPressure ?? "",
+      dischTemp: entry.data?.dischTemp ?? "",
+      oilTemp: entry.data?.oilTemp ?? "",
+      condenserInlet: entry.data?.condenserInlet ?? "",
+      condenserOutlet: entry.data?.condenserOutlet ?? "",
+      chillerInlet: entry.data?.chillerInlet ?? "",
+      chillerOutlet: entry.data?.chillerOutlet ?? "",
+      brineTankTemp: entry.data?.brineTankTemp ?? "",
+      brineLevel: entry.data?.brineLevel ?? "",
+      runHours: entry.data?.runHours ?? "",
+      kwh: entry.data?.kwh ?? "",
+      specificGravity: entry.data?.specificGravity ?? "",
+      loadingReactor: entry.data?.loadingReactor ?? "",
+      operatorSign: entry.operatorName || ""
+    }));
+
+    setRows(mappedRows);
+  }, [allLogs, shift, activePeriod, date, user?.role]);
+
+  // 3. Right live counts calculation
+  const periodCounts = useMemo(() => {
+    const shiftFiltered = allLogs.filter((entry: any) => 
+      user?.role === "admin" ? entry.shift === shift : true
+    );
+
+    return {
+      today: shiftFiltered.filter((r) => isDateInPeriod(r.date, "today")).length,
+      week: shiftFiltered.filter((r) => isDateInPeriod(r.date, "week")).length,
+      month: shiftFiltered.filter((r) => isDateInPeriod(r.date, "month")).length,
+      year: shiftFiltered.filter((r) => isDateInPeriod(r.date, "year")).length,
+    };
+  }, [allLogs, shift, user?.role]);
 
   const handleRowChange = (id: string, field: keyof ChillingEntry, value: any) => {
     setRows(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
@@ -75,6 +109,8 @@ export const ChillingTable: React.FC = () => {
       ...prev,
       {
         id: `temp-${Date.now()}`,
+        date: date,
+        shift: user?.role === "admin" ? shift : user?.assignedShift,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         currentAmp: "",
         spPressure: "",
@@ -97,7 +133,6 @@ export const ChillingTable: React.FC = () => {
     ]);
   };
 
-  // 2. Delete Entry (Admin Only)
   const handleRemoveRow = async (id: string) => {
     if (user?.role !== "admin") return;
 
@@ -111,13 +146,13 @@ export const ChillingTable: React.FC = () => {
     try {
       await API.delete(`/plant/logs/${id}`);
       setRows(prev => prev.filter(row => row.id !== id));
+      setAllLogs(prev => prev.filter((r: any) => r._id !== id));
       setStatusMessage("Chilling entry deleted successfully!");
     } catch (err: any) {
       alert("Delete failed: " + (err.response?.data?.message || err.message));
     }
   };
 
-  // 3. Admin Edit Save (PUT API)
   const handleSaveEdit = async (id: string, updatedData: Partial<ChillingEntry>) => {
     try {
       await API.put(`/plant/logs/${id}`, {
@@ -149,7 +184,6 @@ export const ChillingTable: React.FC = () => {
     }
   };
 
-  // 4. Save New Rows to DB
   const handleSaveAll = async () => {
     setSaving(true);
     setStatusMessage("");
@@ -166,7 +200,7 @@ export const ChillingTable: React.FC = () => {
         await API.post("/plant/logs", {
           blockType: "CHILLING_COMPRESSOR",
           shift: user?.role === "admin" ? shift : user?.assignedShift,
-          date,
+          date: entry.date || date,
           readingTime: entry.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           data: {
             currentAmp: entry.currentAmp,
@@ -203,38 +237,57 @@ export const ChillingTable: React.FC = () => {
   const hasUnsavedRows = rows.some(r => r.id.startsWith("temp-"));
 
   return (
-    <div className="p-6 bg-white shadow rounded-lg border border-slate-200 mt-4">
-      <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+    <div className="p-6 bg-white shadow-sm rounded-2xl border border-slate-200/80 mt-4">
+      <div className="flex flex-wrap justify-between items-center mb-5 gap-3 pb-4 border-b border-slate-100">
         <div>
-          <h2 className="text-xl font-black text-slate-800 tracking-tight">CHILLING COMPRESSOR READINGS</h2>
+          <h2 className="text-lg font-black text-slate-800 tracking-tight">
+            CHILLING COMPRESSOR READINGS
+          </h2>
           <p className="text-xs text-slate-500">Smruthi Organics Limited - Plant Maintenance Log</p>
         </div>
-        {statusMessage && (
-          <span className="text-xs font-semibold px-3 py-1 bg-cyan-50 text-cyan-800 rounded border border-cyan-200">
-            {statusMessage}
-          </span>
-        )}
-        <div className="flex items-center gap-4">
-          <input 
-            type="date" 
-            value={date} 
-            onChange={e => setDate(e.target.value)} 
-            className="border p-1 rounded text-xs bg-white" 
+
+        <div className="flex flex-wrap items-center gap-3">
+          <TimeFilterTabs
+            activePeriod={activePeriod}
+            onPeriodChange={setActivePeriod}
+            counts={periodCounts}
           />
-          
+          {statusMessage && (
+            <span className="text-xs font-semibold px-3 py-1 bg-cyan-50 text-cyan-800 rounded-lg border border-cyan-200">
+              {statusMessage}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-600">Log Date:</span>
+            <input 
+              type="date" 
+              value={date} 
+              onChange={e => setDate(e.target.value)} 
+              className="border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs bg-white font-semibold focus:outline-none focus:border-indigo-500" 
+            />
+          </div>
+
           {user?.role === "admin" ? (
-            <select 
-              value={shift} 
-              onChange={e => setShift(e.target.value)} 
-              className="border p-1 rounded text-xs bg-white font-semibold"
-            >
-              <option value="A">Shift A</option>
-              <option value="B">Shift B</option>
-              <option value="C">Shift C</option>
-            </select>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-600">Shift:</span>
+              <select 
+                value={shift} 
+                onChange={e => setShift(e.target.value)} 
+                className="border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs bg-white font-bold text-indigo-700 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="A">Shift A</option>
+                <option value="B">Shift B</option>
+                <option value="C">Shift C</option>
+              </select>
+            </div>
           ) : (
-            <div className="flex items-center gap-1">
-              <span className="border border-slate-300 bg-slate-100 text-cyan-800 font-bold px-3 py-1 rounded text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="border border-indigo-100 bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded-xl text-xs">
                 Shift {user?.assignedShift}
               </span>
               <span className="text-[11px] text-slate-400 font-medium">🔒 (Locked)</span>
@@ -244,39 +297,43 @@ export const ChillingTable: React.FC = () => {
       </div>
 
       {loading ? (
-        <div className="text-center py-8 text-xs text-slate-500">Loading chilling readings...</div>
+        <div className="text-center py-10 text-xs text-slate-500 font-medium">Loading chilling readings...</div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-xl border border-slate-200/80">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-100 text-slate-700">
-                <th className="p-1 border">Time</th>
-                <th className="p-1 border">Amp</th>
-                <th className="p-1 border">SP</th>
-                <th className="p-1 border">OP</th>
-                <th className="p-1 border">DP</th>
-                <th className="p-1 border">Disch °C</th>
-                <th className="p-1 border">Oil °C</th>
-                <th className="p-1 border">Cond In</th>
-                <th className="p-1 border">Cond Out</th>
-                <th className="p-1 border">Chil In</th>
-                <th className="p-1 border">Chil Out</th>
-                <th className="p-1 border">Brine °C</th>
-                <th className="p-1 border">Level</th>
-                <th className="p-1 border">Hours</th>
-                <th className="p-1 border">KWH</th>
-                <th className="p-1 border">Reactor</th>
-                <th className="p-1 border">Sign</th>
+              <tr className="bg-slate-50 text-slate-700 font-black uppercase text-[10px] tracking-wider border-b border-slate-200/80">
+                <th className="p-2 border-r">Time</th>
+                <th className="p-2 border-r">Amp</th>
+                <th className="p-2 border-r">SP</th>
+                <th className="p-2 border-r">OP</th>
+                <th className="p-2 border-r">DP</th>
+                <th className="p-2 border-r">Disch °C</th>
+                <th className="p-2 border-r">Oil °C</th>
+                <th className="p-2 border-r">Cond In</th>
+                <th className="p-2 border-r">Cond Out</th>
+                <th className="p-2 border-r">Chil In</th>
+                <th className="p-2 border-r">Chil Out</th>
+                <th className="p-2 border-r">Brine °C</th>
+                <th className="p-2 border-r">Level</th>
+                <th className="p-2 border-r">Hours</th>
+                <th className="p-2 border-r">KWH</th>
+                <th className="p-2 border-r">Reactor</th>
+                <th className="p-2 border-r">Sign</th>
                 {user?.role === "admin" && (
-                  <th className="p-1 border text-center">Actions</th>
+                  <th className="p-2 text-center">Actions</th>
                 )}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={user?.role === "admin" ? 18 : 17} className="text-center p-4 text-slate-400 text-xs">
-                    No chilling records found for Date: {date} & Shift: {shift}. Click "+ Add Reading Row" to start.
+                  <td
+                    colSpan={user?.role === "admin" ? 18 : 17}
+                    className="text-center py-8 text-slate-400 text-xs"
+                  >
+                    No chilling records found for Period: <span className="font-bold capitalize">{activePeriod}</span> (Shift {shift}).
+                    {activePeriod === "today" && ' Click "+ Add Reading Row" to start.'}
                   </td>
                 </tr>
               ) : (
@@ -296,24 +353,26 @@ export const ChillingTable: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center gap-3 mt-4">
-        <button 
-          onClick={handleAddRow} 
-          className="px-4 py-2 bg-slate-800 text-white text-xs font-semibold rounded shadow hover:bg-slate-900 transition"
-        >
-          + Add Reading Row
-        </button>
-
-        {hasUnsavedRows && (
+      {activePeriod === "today" && (
+        <div className="flex items-center gap-3 mt-4">
           <button 
-            onClick={handleSaveAll} 
-            disabled={saving}
-            className="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded shadow hover:bg-emerald-700 transition disabled:opacity-50"
+            onClick={handleAddRow} 
+            className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl shadow-sm transition"
           >
-            {saving ? "Saving..." : "💾 Save New Readings to Database"}
+            + Add Reading Row
           </button>
-        )}
-      </div>
+
+          {hasUnsavedRows && (
+            <button 
+              onClick={handleSaveAll} 
+              disabled={saving}
+              className="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "💾 Save New Readings to Database"}
+            </button>
+          )}
+        </div>
+      )}
 
       <ChillingSummary summary={summary} />
     </div>

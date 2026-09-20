@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useAuth } from "./context/AuthContext";
 import { Login } from "./components/auth/Login";
 import { AirCompressorTable } from "./components/airCompressor/AirCompressorTable";
 import { ChillingTable } from "./components/chillingCompressor/ChillingTable";
+import { TimeFilterTabs } from "./components/common/TimeFilterTabs";
+import { isDateInPeriod, TimeFilterPeriod } from "./utils/dateFilters";
 import API from "./utils/api";
 
-// 1. REUSABLE QUERY TIMELINE COMPONENT (Chat / Thread Style)
+// 1. REUSABLE QUERY TIMELINE COMPONENT
 const QueryHistoryTimeline = ({ queries }: { queries: any[] }) => {
   if (!queries || queries.length === 0) return null;
 
@@ -42,7 +44,7 @@ const QueryHistoryTimeline = ({ queries }: { queries: any[] }) => {
   );
 };
 
-// 2. ATTENDANCE PANEL (Operator Live Punch + Admin Manual Override & Shift Filter)
+// 2. ATTENDANCE PANEL
 const AttendancePanel = () => {
   const { user } = useAuth();
   const [records, setRecords] = useState<any[]>([]);
@@ -51,10 +53,11 @@ const AttendancePanel = () => {
   const [msg, setMsg] = useState("");
 
   const [filterShift, setFilterShift] = useState<string>("ALL");
+  const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
+
   const todayStr = new Date().toISOString().split("T")[0];
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
 
-  // Admin Manual Entry State
   const [adminDate, setAdminDate] = useState(todayStr);
   const [adminTime, setAdminTime] = useState("08:00 AM");
   const [adminOperatorName, setAdminOperatorName] = useState("");
@@ -126,15 +129,29 @@ const AttendancePanel = () => {
     (r) => r.date === todayStr && r.userId === (user?.id || (user as any)?._id)
   );
 
-  const filteredRecords = records.filter((r) => {
-    if (user?.role !== "admin") return true;
-    if (filterShift === "ALL") return true;
-    return r.shift === filterShift;
-  });
+  const filteredRecords = useMemo(() => {
+    return records.filter((r) => {
+      if (user?.role === "admin" && filterShift !== "ALL" && r.shift !== filterShift) {
+        return false;
+      }
+      return isDateInPeriod(r.date, activePeriod);
+    });
+  }, [records, user?.role, filterShift, activePeriod]);
+
+  const periodCounts = useMemo(() => {
+    const shiftFiltered = records.filter((r) =>
+      user?.role === "admin" && filterShift !== "ALL" ? r.shift === filterShift : true
+    );
+    return {
+      today: shiftFiltered.filter((r) => isDateInPeriod(r.date, "today")).length,
+      week: shiftFiltered.filter((r) => isDateInPeriod(r.date, "week")).length,
+      month: shiftFiltered.filter((r) => isDateInPeriod(r.date, "month")).length,
+      year: shiftFiltered.filter((r) => isDateInPeriod(r.date, "year")).length,
+    };
+  }, [records, user?.role, filterShift]);
 
   return (
     <div className="space-y-6">
-      {/* Operator View: Glassmorphic Punch Card */}
       {user?.role === "shift_user" && (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-all p-6 max-w-xl mx-auto backdrop-blur-md">
           <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
@@ -231,7 +248,6 @@ const AttendancePanel = () => {
         </div>
       )}
 
-      {/* Admin View: Manual Attendance Override Panel */}
       {user?.role === "admin" && (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 max-w-4xl mx-auto">
           <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
@@ -333,7 +349,6 @@ const AttendancePanel = () => {
         </div>
       )}
 
-      {/* Attendance Table */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3">
           <div>
@@ -341,11 +356,17 @@ const AttendancePanel = () => {
               {user?.role === "admin" ? "PLANT ATTENDANCE MASTER SHEET" : "MY ATTENDANCE ARCHIVE"}
             </h3>
             <p className="text-[11px] text-slate-500">
-              Verified digital logs with millisecond server timestamps
+              Select time period section to view attendance history
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <TimeFilterTabs
+              activePeriod={activePeriod}
+              onPeriodChange={setActivePeriod}
+              counts={periodCounts}
+            />
+
             {user?.role === "admin" && (
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
                 <span className="text-[11px] font-bold text-slate-500">Shift:</span>
@@ -375,7 +396,7 @@ const AttendancePanel = () => {
           <p className="text-xs text-slate-500 text-center py-8">Loading attendance ledger...</p>
         ) : filteredRecords.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-8">
-            No records found for {filterShift === "ALL" ? "any shift" : `Shift ${filterShift}`}.
+            No records found for period: <span className="font-bold capitalize">{activePeriod}</span>.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -425,6 +446,7 @@ const OperatorShiftReportSection = ({ shift, operatorName }: { shift: string; op
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
+  const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
 
   const fetchMyReports = async () => {
     setLoading(true);
@@ -479,6 +501,17 @@ const OperatorShiftReportSection = ({ shift, operatorName }: { shift: string; op
       alert("Error: " + (err.response?.data?.message || err.message));
     }
   };
+
+  const filteredReports = useMemo(() => {
+    return reports.filter((rep) => isDateInPeriod(rep.date, activePeriod));
+  }, [reports, activePeriod]);
+
+  const periodCounts = useMemo(() => ({
+    today: reports.filter((r) => isDateInPeriod(r.date, "today")).length,
+    week: reports.filter((r) => isDateInPeriod(r.date, "week")).length,
+    month: reports.filter((r) => isDateInPeriod(r.date, "month")).length,
+    year: reports.filter((r) => isDateInPeriod(r.date, "year")).length,
+  }), [reports]);
 
   return (
     <div className="space-y-6">
@@ -536,14 +569,24 @@ const OperatorShiftReportSection = ({ shift, operatorName }: { shift: string; op
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6">
-        <h4 className="text-sm font-black text-slate-800 mb-4">My Submitted Shift Reports Ledger</h4>
+        <div className="flex flex-wrap justify-between items-center mb-4 gap-3">
+          <h4 className="text-sm font-black text-slate-800">My Submitted Shift Reports Ledger</h4>
+          <TimeFilterTabs
+            activePeriod={activePeriod}
+            onPeriodChange={setActivePeriod}
+            counts={periodCounts}
+          />
+        </div>
+
         {loading ? (
           <p className="text-xs text-slate-500 text-center py-6">Loading reports ledger...</p>
-        ) : reports.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-6">No reports submitted yet.</p>
+        ) : filteredReports.length === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-6">
+            No reports submitted for period: <span className="font-bold capitalize">{activePeriod}</span>.
+          </p>
         ) : (
           <div className="space-y-4">
-            {reports.map((rep) => (
+            {filteredReports.map((rep) => (
               <div key={rep._id} className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/50 text-xs">
                 <div className="flex justify-between items-center mb-2">
                   <span className="font-mono font-bold text-slate-800">Date: {rep.date}</span>
@@ -601,6 +644,7 @@ const AdminReportsList = () => {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterShift, setFilterShift] = useState<string>("ALL");
+  const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
   const [activeQueryId, setActiveQueryId] = useState<string | null>(null);
   const [queryInput, setQueryInput] = useState("");
 
@@ -645,10 +689,24 @@ const AdminReportsList = () => {
     }
   };
 
-  const filteredReports = reports.filter((r) => {
-    if (filterShift === "ALL") return true;
-    return r.shift === filterShift;
-  });
+  const filteredReports = useMemo(() => {
+    return reports.filter((r) => {
+      if (filterShift !== "ALL" && r.shift !== filterShift) return false;
+      return isDateInPeriod(r.date, activePeriod);
+    });
+  }, [reports, filterShift, activePeriod]);
+
+  const periodCounts = useMemo(() => {
+    const shiftFiltered = reports.filter((r) =>
+      filterShift !== "ALL" ? r.shift === filterShift : true
+    );
+    return {
+      today: shiftFiltered.filter((r) => isDateInPeriod(r.date, "today")).length,
+      week: shiftFiltered.filter((r) => isDateInPeriod(r.date, "week")).length,
+      month: shiftFiltered.filter((r) => isDateInPeriod(r.date, "month")).length,
+      year: shiftFiltered.filter((r) => isDateInPeriod(r.date, "year")).length,
+    };
+  }, [reports, filterShift]);
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6">
@@ -658,11 +716,17 @@ const AdminReportsList = () => {
             SHIFT REPORTS AUDIT & REVIEW
           </h2>
           <p className="text-[11px] text-slate-500">
-            Verify handover reports, raise technical queries, and grant final shift sign-offs
+            Verify handover reports by time period, raise queries, and grant final sign-offs
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <TimeFilterTabs
+            activePeriod={activePeriod}
+            onPeriodChange={setActivePeriod}
+            counts={periodCounts}
+          />
+
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
             <span className="text-[11px] font-bold text-slate-500">Shift:</span>
             <select
@@ -690,7 +754,8 @@ const AdminReportsList = () => {
         <p className="text-xs text-slate-500 py-8 text-center">Auditing reports ledger...</p>
       ) : filteredReports.length === 0 ? (
         <p className="text-xs text-slate-400 py-8 text-center">
-          No reports found for {filterShift === "ALL" ? "any shift" : `Shift ${filterShift}`}.
+          No reports found for period <span className="font-bold capitalize">{activePeriod}</span>{" "}
+          {filterShift !== "ALL" && `(Shift ${filterShift})`}.
         </p>
       ) : (
         <div className="space-y-4">
@@ -784,7 +849,7 @@ const AdminReportsList = () => {
   );
 };
 
-// 5. TOP METRICS STRIP (INDUSTRIAL COCKPIT DASHBOARD FEEL)
+// 5. TOP METRICS STRIP
 const PlantStatusHeader = ({ role, shift }: { role: string; shift?: string }) => {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 mb-6">
@@ -855,7 +920,6 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-slate-50/60 text-slate-900 pb-16 font-sans">
-      {/* Sleek Enterprise Industrial Dark Header */}
       <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-20 shadow-lg px-6 lg:px-10 py-3.5">
         <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
           <div className="flex items-center gap-3.5">
@@ -878,7 +942,6 @@ export function App() {
             </div>
           </div>
 
-          {/* Segmented Linear Navigation Controls */}
           <div className="flex items-center gap-3">
             <div className="flex gap-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700/60 text-xs font-bold shadow-inner">
               <button
@@ -923,7 +986,6 @@ export function App() {
               </button>
             </div>
 
-            {/* Operator/Admin Profile & Logout */}
             <div className="flex items-center gap-3 pl-3 border-l border-slate-800">
               <div className="text-right">
                 <span className="block text-xs font-bold text-white">{user.name}</span>
@@ -942,7 +1004,6 @@ export function App() {
         </div>
       </header>
 
-      {/* Main Industrial Dashboard Body */}
       <main className="max-w-7xl mx-auto px-6 lg:px-10 pt-6">
         <PlantStatusHeader role={user.role} shift={user.assignedShift} />
 
