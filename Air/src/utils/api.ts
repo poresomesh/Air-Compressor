@@ -2,7 +2,7 @@ import axios from "axios";
 
 // Environment variable असेल तर ती URL घेईल, नाहीतर लोकल डेव्हलपमेंटसाठी localhost घेईल
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "https://air-compressor-lp9t.onrender.com/api",
 });
 
 // Request interceptor (जर टोकन लावत असाल तर)
