@@ -1,12 +1,13 @@
 import axios from "axios";
 
+// Environment variable असेल तर ती URL घेईल, नाहीतर लोकल डेव्हलपमेंटसाठी localhost घेईल
 const API = axios.create({
-  baseURL: "http://localhost:5000/api",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api",
 });
 
-// रिक्वेस्ट पाठवताना आपोआप Bearer Token जोडणे
+// Request interceptor (जर टोकन लावत असाल तर)
 API.interceptors.request.use((config) => {
-  const token = localStorage.getItem("plant_token");
+  const token = localStorage.getItem("token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
