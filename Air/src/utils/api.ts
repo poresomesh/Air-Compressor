@@ -1,11 +1,13 @@
 import axios from "axios";
 
-// Environment variable असेल तर ती URL घेईल, नाहीतर लोकल डेव्हलपमेंटसाठी localhost घेईल
+// Jar Render/Production URL asel tar ti vapara, nahi tar fallback sathi Render chi live backend URL dya
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "https://air-compressor-lp9t.onrender.com/api",
+  baseURL:
+    import.meta.env.VITE_API_URL ||
+    "https://air-compressor-1.onrender.com/api", // Tumchi actual live backend render URL ithe dya
 });
 
-// Request interceptor (जर टोकन लावत असाल तर)
+// Request Interceptor: LocalStorage madhun token pathvnyasathi
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) {
@@ -15,3 +17,6 @@ API.interceptors.request.use((config) => {
 });
 
 export default API;
+
+
+
