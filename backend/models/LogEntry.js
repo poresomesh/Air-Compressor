@@ -4,12 +4,27 @@ const LogEntrySchema = new mongoose.Schema(
   {
     blockType: { 
       type: String, 
-      enum: ["AIR_COMPRESSOR", "CHILLING_COMPRESSOR"], 
+      enum: [
+    "AIR_COMPRESSOR",
+    "AIR_COMPRESSOR_A",
+    "AIR_COMPRESSOR_B",
+    "AIR_COMPRESSOR_C",
+    "AIR_COMPRESSOR_D",
+    "CHILLING_COMPRESSOR",
+    "CHILLING_COMPRESSOR_A",
+    "CHILLING_COMPRESSOR_B",
+    "DG_350_KVA",
+    "DG_500_KVA",
+
+     // Power Failure Record
+    "POWER_FAILURE"
+  ], 
       required: true 
     },
     shift: { 
       type: String, 
-      enum: ["A", "B", "C"], 
+      enum : ["A", "B", "C", "ALL", "G"],
+      default: "A" ,
       required: true 
     },
     date: { type: String, required: true },

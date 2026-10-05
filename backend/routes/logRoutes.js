@@ -23,7 +23,7 @@ const authMiddleware = (req, res, next) => {
   });
 };
 
-// 1. GET LOGS: View entries filtered by role (Admin gets all, Operators get their assigned shift)
+// 1. GET LOGS
 router.get("/logs", authMiddleware, async (req, res) => {
   try {
     const { blockType, date } = req.query;
@@ -32,45 +32,51 @@ router.get("/logs", authMiddleware, async (req, res) => {
     if (blockType) filter.blockType = blockType;
     if (date) filter.date = date;
 
-    // Shift users can only access their assigned shift
-    if (req.user.role !== "admin") {
+    // Shift users can only access their assigned shift (except for global power failure)
+    if (req.user.role !== "admin" && blockType !== "POWER_FAILURE") {
       filter.shift = req.user.assignedShift;
     }
 
-    const logs = await LogEntry.find(filter).sort({ entryTimestamp: -1 });
+    const logs = await LogEntry.find(filter).sort({ entryTimestamp: -1, createdAt: -1 });
     res.json(logs);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. POST LOG: Save log entry with automatic live timestamp
+// 2. POST LOG: Save entry safely
 router.post("/logs", authMiddleware, async (req, res) => {
   try {
     const { blockType, shift, date, readingTime, data } = req.body;
 
-    // Restrict shift users to their assigned shift only
-    const finalShift = req.user.role === "admin" ? shift : req.user.assignedShift;
+    // Shift जर 'ALL' किंवा undefined असेल तर 'A' मध्ये सुरक्षित फॉलबॅक
+    let finalShift = "A";
+    if (shift && shift !== "ALL") {
+      finalShift = shift;
+    } else if (req.user.assignedShift && req.user.assignedShift !== "ALL") {
+      finalShift = req.user.assignedShift;
+    }
 
     const newEntry = new LogEntry({
       blockType,
       shift: finalShift,
-      date,
-      readingTime,
-      entryTimestamp: new Date(), // Automatic server timestamp
-      operatorName: req.user.name,
-      createdBy: req.user.id,
-      data
+      date: date || new Date().toISOString().split("T")[0],
+      readingTime: readingTime || "00:00",
+      entryTimestamp: new Date(),
+      operatorName: req.user.name || "Plant Admin",
+      createdBy: req.user.id || req.user._id,
+      data: data || {}
     });
 
     await newEntry.save();
     res.status(201).json(newEntry);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("LOG SAVE ERROR:", err);
+    res.status(500).json({ message: err.message });
   }
 });
 
-// 3. PUT LOG: Edit entry (Admin only)
+// 3. PUT LOG: Edit entry
 router.put("/logs/:id", authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== "admin") {
@@ -88,7 +94,7 @@ router.put("/logs/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// 4. DELETE LOG: Delete entry (Admin only)
+// 4. DELETE LOG: Delete entry
 router.delete("/logs/:id", authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== "admin") {
@@ -102,13 +108,13 @@ router.delete("/logs/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// 5. POST REPORT: Submit End-of-Shift report (Shift Operators)
+// 5. POST REPORT
 router.post("/reports", authMiddleware, async (req, res) => {
   try {
     const { workSummary, issuesFaced, date } = req.body;
 
     const report = new ShiftReport({
-      shift: req.user.assignedShift,
+      shift: req.user.assignedShift || "A",
       date: date || new Date().toISOString().split("T")[0],
       operatorName: req.user.name,
       workSummary,
@@ -123,7 +129,7 @@ router.post("/reports", authMiddleware, async (req, res) => {
   }
 });
 
-// 6. GET REPORTS: Fetch shift reports (Admin gets all, Operators get their own)
+// 6. GET REPORTS
 router.get("/reports", authMiddleware, async (req, res) => {
   try {
     let filter = {};
@@ -138,7 +144,7 @@ router.get("/reports", authMiddleware, async (req, res) => {
   }
 });
 
-// 7. PATCH REPORT ACCEPT: Mark report as accepted/completed (Admin only)
+// 7. PATCH REPORT ACCEPT
 router.patch("/reports/:id/accept", authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== "admin") {
@@ -156,7 +162,7 @@ router.patch("/reports/:id/accept", authMiddleware, async (req, res) => {
   }
 });
 
-// 8. PATCH REPORT UPDATE: Handle Admin queries or Operator corrections with History
+// 8. PATCH REPORT UPDATE
 router.patch("/reports/:id", authMiddleware, async (req, res) => {
   try {
     const { newQueryMessage, sender, status, workSummary, issuesFaced } = req.body;
@@ -168,7 +174,6 @@ router.patch("/reports/:id", authMiddleware, async (req, res) => {
 
     let updateQuery = { $set: updateFields };
 
-    // Jar navin query kiva operator cha reply asel tar array madhe push kara
     if (newQueryMessage) {
       updateQuery.$push = {
         queries: {
@@ -197,28 +202,27 @@ router.patch("/reports/:id", authMiddleware, async (req, res) => {
 
 // --- ATTENDANCE APIS ---
 
-// 1. Mark Attendance (Operator live punch OR Admin manual entry)
 router.post("/attendance", authMiddleware, async (req, res) => {
   try {
     const isAdmin = req.user.role === "admin";
     let finalUserId, finalOperatorName, finalShift, finalDate, finalTime;
 
     if (isAdmin && req.body.operatorName) {
-      // Admin manual override entry
-      finalUserId = req.body.userId || "admin-manual-entry";
-      finalOperatorName = req.body.operatorName;
-      finalShift = req.body.shift;
+      finalUserId = req.user.id || req.user._id; 
+      finalOperatorName = req.body.operatorName.trim();
+      finalShift = req.body.shift || "A";
       finalDate = req.body.date;
-      finalTime = req.body.checkInTime;
+      finalTime = req.body.checkInTime || "08:00 AM";
     } else {
-      // Operator live strict punch
       finalUserId = req.user.id || req.user._id;
-      finalOperatorName = req.user.name;
-      finalShift = req.user.assignedShift;
-      finalDate = new Date().toISOString().split("T")[0];
+      finalOperatorName = (req.body.operatorName && req.body.operatorName.trim()) 
+        ? req.body.operatorName.trim() 
+        : req.user.name;
+
+      finalShift = req.body.shift || req.user.assignedShift || "A";
+      finalDate = req.body.date || new Date().toISOString().split("T")[0];
       finalTime = new Date().toLocaleTimeString("en-US", { hour12: true });
 
-      // Operator sathi duplicate check
       const existing = await Attendance.findOne({
         userId: finalUserId,
         date: finalDate,
@@ -247,18 +251,36 @@ router.post("/attendance", authMiddleware, async (req, res) => {
   }
 });
 
-// 2. Get Attendance (Admin gets all, Operator gets own)
 router.get("/attendance", authMiddleware, async (req, res) => {
   try {
     let filter = {};
     if (req.user.role !== "admin") {
-      filter.userId = req.user.id;
+      filter.userId = req.user.id || req.user._id;
     }
 
     const records = await Attendance.find(filter).sort({ createdAt: -1 });
     res.json(records);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE SHIFT REPORT (Admin Only)
+router.delete("/reports/:id", authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Access Denied: Fakt Admin report delete karu shakto!" });
+    }
+
+    const deletedReport = await ShiftReport.findByIdAndDelete(req.params.id);
+    if (!deletedReport) {
+      return res.status(404).json({ message: "Report sapadla nahi!" });
+    }
+
+    res.json({ message: "Shift report successfully delete zala!" });
+  } catch (err) {
+    console.error("Delete Report Error:", err);
+    res.status(500).json({ message: err.message });
   }
 });
 
