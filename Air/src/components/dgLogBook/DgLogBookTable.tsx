@@ -6,7 +6,7 @@ import { isDateInPeriod, TimeFilterPeriod } from "../../utils/dateFilters";
 import API from "../../utils/api";
 
 const DG_UNITS = [
-  { id: "DG_350_KVA", label: "DG 350 KVA", icon: "⚡" },
+  { id: "DG_350_KVA", label: "DG 320 KVA", icon: "⚡" },
   { id: "DG_500_KVA", label: "DG 500 KVA", icon: "⚡" }
 ];
 
@@ -79,8 +79,14 @@ const DgLogRow: React.FC<{
           <input
             type="text"
             value={currentData.time}
-            onChange={(e) => handleChange("time", e.target.value)}
-            className="w-16 p-1 border border-slate-300 rounded text-center text-xs font-semibold focus:outline-none focus:border-indigo-500 bg-white"
+            onChange={(e) => isAdmin && handleChange("time", e.target.value)}
+            readOnly={!isAdmin}
+            disabled={!isAdmin}
+            title={!isAdmin ? "Time is strictly locked to system clock" : "Edit Time"}
+            className={`w-16 p-1 border rounded text-center text-xs font-semibold focus:outline-none ${!isAdmin
+                ? "bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed font-mono"
+                : "bg-white text-slate-800 border-slate-300 focus:border-indigo-500 font-mono"
+              }`}
           />
         </td>
         <td className="p-2 border-r border-slate-200 text-center">

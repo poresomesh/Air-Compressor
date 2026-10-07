@@ -1,21 +1,43 @@
-import type { ChillingEntry, ChillingSummaryData } from "../types/chillingCompressor";
+import type { ChillingEntry } from "../types/chillingCompressor";
 
-export const calculateChillingStats = (rows: ChillingEntry[]): ChillingSummaryData => {
-  const validKwh = rows.map(r => Number(r.kwh)).filter(v => !isNaN(v) && v > 0);
-  const validHours = rows.map(r => Number(r.runHours)).filter(v => !isNaN(v) && v > 0);
+export interface ChillingStats {
+  deltaT: string;
+  totalKwh: string;
+  totalRunHours: string;
+}
 
-  const totalEnergyConsumed = validKwh.length >= 2 
-    ? Number((validKwh[validKwh.length - 1] - validKwh[0]).toFixed(2)) 
-    : 0;
+export const calculateChillingStats = (rows: ChillingEntry[]): ChillingStats => {
+  if (!rows || rows.length === 0) {
+    return {
+      deltaT: "0",
+      totalKwh: "0",
+      totalRunHours: "0"
+    };
+  }
 
-  const totalRunHours = validHours.length >= 2 
-    ? Number((validHours[validHours.length - 1] - validHours[0]).toFixed(2)) 
-    : 0;
+  // शेवटची (सध्याची/करंट) रो शोधणे जिथे डेटा भरला आहे
+  const validRows = rows.filter(r => r.kwh !== "" || r.runHours !== "");
+  const latestRow = validRows.length > 0 ? validRows[validRows.length - 1] : rows[rows.length - 1];
 
-  const lastRow = rows[rows.length - 1];
-  const deltaT = (lastRow && typeof lastRow.chillerInlet === "number" && typeof lastRow.chillerOutlet === "number")
-    ? Number((lastRow.chillerInlet - lastRow.chillerOutlet).toFixed(2))
-    : 0;
+  // 1. Chiller Delta T
+  let deltaT = "0";
+  if (latestRow?.chillerInlet && latestRow?.chillerOutlet) {
+    const inlet = parseFloat(String(latestRow.chillerInlet));
+    const outlet = parseFloat(String(latestRow.chillerOutlet));
+    if (!isNaN(inlet) && !isNaN(outlet)) {
+      deltaT = (inlet - outlet).toFixed(1).replace(/\.0$/, "");
+    }
+  }
 
-  return { deltaT, totalEnergyConsumed, totalRunHours };
+  // 2. Current KWH (करंट टाकलेला आकडा जसाच्या तसा)
+  const currentKwh = latestRow?.kwh ? String(latestRow.kwh) : "0";
+
+  // 3. Current Run Hours (करंट टाकलेले तास जसेच्या तसे)
+  const currentRunHours = latestRow?.runHours ? String(latestRow.runHours) : "0";
+
+  return {
+    deltaT,
+    totalKwh: currentKwh,
+    totalRunHours: currentRunHours
+  };
 };

@@ -252,8 +252,14 @@ export const PowerFailureTable: React.FC = () => {
           <input
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs bg-white font-semibold focus:outline-none focus:border-indigo-500 cursor-pointer"
+            onChange={(e) => isAdmin && setDate(e.target.value)}
+            readOnly={!isAdmin}
+            disabled={!isAdmin}
+            className={`border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold focus:outline-none ${
+              !isAdmin
+                ? "bg-slate-100 text-slate-500 cursor-not-allowed"
+                : "bg-white text-slate-800 focus:border-indigo-500 cursor-pointer"
+            }`}
           />
         </div>
 
@@ -327,8 +333,12 @@ export const PowerFailureTable: React.FC = () => {
                           <input
                             type="date"
                             value={cur.date || ""}
-                            onChange={(e) => updateField("date", e.target.value)}
-                            className="p-1 border border-slate-300 rounded text-xs bg-white"
+                            onChange={(e) => isAdmin && updateField("date", e.target.value)}
+                            readOnly={!isAdmin}
+                            disabled={!isAdmin}
+                            className={`p-1 border border-slate-300 rounded text-xs ${
+                              !isAdmin ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-white"
+                            }`}
                           />
                         </td>
                         <td className="p-2 border-r border-slate-200 text-center">

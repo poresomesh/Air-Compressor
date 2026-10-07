@@ -65,10 +65,12 @@ export const ChillingRowInput: React.FC<Props> = ({
       <td className="p-1 border">
         {canEditDirectly ? (
           <input
-            type="time"
-            value={currentData.time}
-            onChange={e => updateField("time", e.target.value)}
-            className="w-16 border p-0.5 rounded text-xs"
+            type="text"
+            value={row.time}
+            onChange={(e) => isAdmin && onChange(row.id, "time", e.target.value)}
+            readOnly={!isAdmin}
+            disabled={!isAdmin}
+            className={!isAdmin ? "bg-slate-100 cursor-not-allowed font-mono text-slate-500" : "bg-white"}
           />
         ) : (
           <span className="font-mono text-slate-700">{row.time || "--:--"}</span>

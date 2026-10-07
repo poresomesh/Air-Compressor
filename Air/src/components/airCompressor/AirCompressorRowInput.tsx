@@ -54,21 +54,19 @@ export const AirCompressorRowInput: React.FC<Props> = ({
   return (
     <tr className={`border-b text-xs ${isEditing ? "bg-amber-50/60" : "hover:bg-slate-50"}`}>
       {/* Time */}
-      <td className="p-2 border">
-        {canEditDirectly ? (
-          <input
-            type="time"
-            value={isEditing ? editValues.time : row.time}
-            onChange={(e) =>
-              isEditing
-                ? setEditValues({ ...editValues, time: e.target.value })
-                : onChange(row.id, "time", e.target.value)
-            }
-            className="border border-slate-300 rounded px-1.5 py-0.5 text-xs w-20"
-          />
-        ) : (
-          <span className="font-mono text-slate-700">{row.time || "--:--"}</span>
-        )}
+      <td className="p-2 border-r border-slate-200 text-center">
+        <input
+          type="text"
+          value={row.time}
+          onChange={(e) => isAdmin && onChange(row.id, "time", e.target.value)}
+          readOnly={!isAdmin}
+          disabled={!isAdmin}
+          title={!isAdmin ? "Time is auto-locked" : "Edit Time"}
+          className={`w-16 p-1 border rounded text-center text-xs ${!isAdmin
+              ? "bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed font-mono font-bold"
+              : "bg-white text-slate-800 border-slate-300 focus:border-indigo-500 font-mono"
+            }`}
+        />
       </td>
 
       {/* Oil Pressure */}
