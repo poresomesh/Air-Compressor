@@ -15,6 +15,7 @@ export const ShiftReportsReview: React.FC = () => {
   const [msg, setMsg] = useState<string>("");
 
   const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
+  const [customDate, setCustomDate] = useState<string>("");
   const [selectedShift, setSelectedShift] = useState<string>("ALL");
 
   const today = new Date().toISOString().split("T")[0];
@@ -145,7 +146,7 @@ export const ShiftReportsReview: React.FC = () => {
   const filteredReports = reports.filter((rep) => {
     const repShift = (rep.shift || "").replace(/Shift\s*/i, "").trim().toUpperCase();
     const matchShift = selectedShift === "ALL" || repShift === selectedShift;
-    const matchPeriod = isDateInPeriod(rep.date, activePeriod);
+    const matchPeriod = isDateInPeriod(rep.date, activePeriod, customDate);
     return matchShift && matchPeriod;
   });
 
@@ -178,7 +179,12 @@ export const ShiftReportsReview: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <TimeFilterTabs activePeriod={activePeriod} onPeriodChange={setActivePeriod} />
+              <TimeFilterTabs
+                activePeriod={activePeriod}
+                onPeriodChange={setActivePeriod}
+                customDate={customDate}
+                onCustomDateChange={setCustomDate}
+              />
 
               <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
                 <span className="text-[11px] font-bold text-slate-600">Shift:</span>

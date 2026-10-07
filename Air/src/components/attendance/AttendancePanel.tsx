@@ -13,6 +13,7 @@ export const AttendancePanel: React.FC = () => {
 
   const [filterShift, setFilterShift] = useState<string>("ALL");
   const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
+  const [customDate, setCustomDate] = useState<string>("");
 
   const todayStr = new Date().toISOString().split("T")[0];
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
@@ -111,7 +112,10 @@ export const AttendancePanel: React.FC = () => {
 
   const hasMarkedToday = Array.isArray(records)
     ? records.some(
-        (r) => r.date === todayStr && (r.userId === (user?.id || (user as any)?._id) || r.operatorName === operatorCustomName)
+        (r) =>
+          r.date === todayStr &&
+          (r.userId === (user?.id || (user as any)?._id) ||
+            r.operatorName === operatorCustomName)
       )
     : false;
 
@@ -121,9 +125,9 @@ export const AttendancePanel: React.FC = () => {
       if (user?.role === "admin" && filterShift !== "ALL" && r.shift !== filterShift) {
         return false;
       }
-      return isDateInPeriod(r.date, activePeriod);
+      return isDateInPeriod(r.date, activePeriod, customDate);
     });
-  }, [records, user?.role, filterShift, activePeriod]);
+  }, [records, user?.role, filterShift, activePeriod, customDate]);
 
   const periodCounts = useMemo(() => {
     if (!Array.isArray(records)) {
@@ -381,6 +385,8 @@ export const AttendancePanel: React.FC = () => {
               activePeriod={activePeriod}
               onPeriodChange={setActivePeriod}
               counts={periodCounts}
+              customDate={customDate}
+              onCustomDateChange={setCustomDate}
             />
 
             {user?.role === "admin" && (
@@ -412,7 +418,11 @@ export const AttendancePanel: React.FC = () => {
           <p className="text-xs text-slate-500 text-center py-8">Loading attendance ledger...</p>
         ) : filteredRecords.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-8">
-            No records found for period: <span className="font-bold capitalize">{activePeriod}</span>.
+            No records found for period:{" "}
+            <span className="font-bold capitalize">
+              {activePeriod === "custom" ? customDate || "Selected Date" : activePeriod}
+            </span>
+            .
           </p>
         ) : (
           <div className="overflow-x-auto">

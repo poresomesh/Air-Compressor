@@ -30,6 +30,7 @@ export const AirCompressorTable: React.FC = () => {
   const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [shift, setShift] = useState<string>(defaultShift);
   const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
+  const [customDate, setCustomDate] = useState<string>("");
   const [allLogs, setAllLogs] = useState<any[]>([]);
   const [rows, setRows] = useState<ExtendedAirCompressorEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -76,7 +77,7 @@ export const AirCompressorTable: React.FC = () => {
       if (activePeriod === "today") {
         return matchesShift && entry.date === date;
       }
-      return matchesShift && isDateInPeriod(entry.date, activePeriod);
+      return matchesShift && isDateInPeriod(entry.date, activePeriod, customDate);
     });
 
     const mappedRows: ExtendedAirCompressorEntry[] = filtered.map((entry: any) => ({
@@ -92,7 +93,7 @@ export const AirCompressorTable: React.FC = () => {
     }));
 
     setRows(mappedRows);
-  }, [allLogs, shift, activePeriod, date, user?.role]);
+  }, [allLogs, shift, activePeriod, date, customDate, user?.role]);
 
   // 3. Live Counts Guard
   const periodCounts = useMemo(() => {
@@ -117,11 +118,13 @@ export const AirCompressorTable: React.FC = () => {
   };
 
   const handleAddRow = () => {
+    const selectedDate = activePeriod === "custom" && customDate ? customDate : date;
+
     setRows(prev => [
       ...prev,
       {
         id: `temp-${Date.now()}`,
-        date: date,
+        date: selectedDate,
         shift: user?.role === "admin" ? shift : user?.assignedShift,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         oilPressure: "",
@@ -188,7 +191,7 @@ export const AirCompressorTable: React.FC = () => {
         await API.post("/plant/logs", {
           blockType: activeUnit,
           shift: user?.role === "admin" ? shift : user?.assignedShift,
-          date: entry.date || date,
+          date: entry.date || (activePeriod === "custom" && customDate ? customDate : date),
           readingTime: entry.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           data: {
             oilPressure: entry.oilPressure,
@@ -241,6 +244,8 @@ export const AirCompressorTable: React.FC = () => {
               activePeriod={activePeriod}
               onPeriodChange={setActivePeriod}
               counts={periodCounts}
+              customDate={customDate}
+              onCustomDateChange={setCustomDate}
             />
             {statusMessage && (
               <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200">
@@ -279,8 +284,12 @@ export const AirCompressorTable: React.FC = () => {
                       colSpan={user?.role === "admin" ? 7 : 6}
                       className="text-center py-8 text-slate-400 text-xs"
                     >
-                      No readings found for {AIR_UNITS.find(u => u.id === activeUnit)?.label} (Period: <span className="font-bold capitalize">{activePeriod}</span>, Shift {shift}).
-                      {activePeriod === "today" && ' Click "+ Add Reading Row" to start.'}
+                      No readings found for {AIR_UNITS.find(u => u.id === activeUnit)?.label} (Period:{" "}
+                      <span className="font-bold capitalize">
+                        {activePeriod === "custom" ? customDate || "Selected Date" : activePeriod}
+                      </span>
+                      , Shift {shift}).
+                      {(activePeriod === "today" || activePeriod === "custom") && ' Click "+ Add Reading Row" to start.'}
                     </td>
                   </tr>
                 ) : (
@@ -300,11 +309,11 @@ export const AirCompressorTable: React.FC = () => {
           </div>
         )}
 
-        {activePeriod === "today" && (
+        {(activePeriod === "today" || activePeriod === "custom") && (
           <div className="flex items-center gap-3 mt-4">
             <button
               onClick={handleAddRow}
-              className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl shadow-sm transition"
+              className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer"
             >
               + Add Reading Row
             </button>
@@ -313,7 +322,7 @@ export const AirCompressorTable: React.FC = () => {
               <button
                 onClick={handleSaveAll}
                 disabled={saving}
-                className="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition disabled:opacity-50"
+                className="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition disabled:opacity-50 cursor-pointer"
               >
                 {saving ? "Saving..." : "💾 Save New Readings to Database"}
               </button>

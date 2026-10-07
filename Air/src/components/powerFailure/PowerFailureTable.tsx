@@ -23,6 +23,7 @@ export const PowerFailureTable: React.FC = () => {
   const isAdmin = user?.role === "admin";
   const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
   const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [customDate, setCustomDate] = useState<string>("");
   const [shiftFilter, setShiftFilter] = useState<string>("ALL"); // Default All Shifts for Admin
   const [allLogs, setAllLogs] = useState<any[]>([]);
   const [rows, setRows] = useState<PowerFailureEntry[]>([]);
@@ -69,7 +70,7 @@ export const PowerFailureTable: React.FC = () => {
       const matchDate =
         activePeriod === "today"
           ? e.date === date
-          : isDateInPeriod(e.date, activePeriod);
+          : isDateInPeriod(e.date, activePeriod, customDate);
 
       return matchShift && matchDate;
     });
@@ -89,7 +90,7 @@ export const PowerFailureTable: React.FC = () => {
         sign: e.operatorName || user?.name || "Plant Admin"
       }))
     );
-  }, [allLogs, activePeriod, date, shiftFilter, isAdmin, user?.assignedShift, user?.name]);
+  }, [allLogs, activePeriod, date, customDate, shiftFilter, isAdmin, user?.assignedShift, user?.name]);
 
   const periodCounts = useMemo(() => {
     if (!Array.isArray(allLogs)) return { today: 0, week: 0, month: 0, year: 0 };
@@ -109,6 +110,8 @@ export const PowerFailureTable: React.FC = () => {
   };
 
   const handleAddRow = () => {
+    const selectedDate = activePeriod === "custom" && customDate ? customDate : date;
+
     // Determine default shift for new row
     const defaultShift = !isAdmin
       ? user?.assignedShift || "A"
@@ -121,7 +124,7 @@ export const PowerFailureTable: React.FC = () => {
       {
         id: `temp-${Date.now()}`,
         srNo: prev.length + 1,
-        date: date,
+        date: selectedDate,
         shift: defaultShift,
         dgId: "UIDG/001",
         capacity: "125 KVA",
@@ -149,7 +152,7 @@ export const PowerFailureTable: React.FC = () => {
         await API.post("/plant/logs", {
           blockType: "POWER_FAILURE",
           shift: entry.shift || "A",
-          date: entry.date || date,
+          date: entry.date || (activePeriod === "custom" && customDate ? customDate : date),
           readingTime: entry.startedAt || "00:00",
           data: {
             dgId: entry.dgId || "UIDG/001",
@@ -227,7 +230,13 @@ export const PowerFailureTable: React.FC = () => {
           <p className="text-xs text-slate-500">Smruthi Organics Limited - Plant Maintenance Log</p>
         </div>
         <div className="flex items-center gap-3">
-          <TimeFilterTabs activePeriod={activePeriod} onPeriodChange={setActivePeriod} counts={periodCounts} />
+          <TimeFilterTabs
+            activePeriod={activePeriod}
+            onPeriodChange={setActivePeriod}
+            counts={periodCounts}
+            customDate={customDate}
+            onCustomDateChange={setCustomDate}
+          />
           {statusMsg && (
             <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100">
               {statusMsg}
@@ -236,7 +245,7 @@ export const PowerFailureTable: React.FC = () => {
         </div>
       </div>
 
-      {/* Date & Shift Selector Bar (Same as Air Compressor & DG) */}
+      {/* Date & Shift Selector Bar */}
       <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-200/60 mb-5 flex flex-wrap items-center gap-6">
         <div className="flex items-center gap-2">
           <label className="text-xs font-bold text-slate-600">Date:</label>
@@ -244,7 +253,7 @@ export const PowerFailureTable: React.FC = () => {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs bg-white font-semibold focus:outline-none focus:border-indigo-500"
+            className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs bg-white font-semibold focus:outline-none focus:border-indigo-500 cursor-pointer"
           />
         </div>
 
@@ -294,7 +303,11 @@ export const PowerFailureTable: React.FC = () => {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 11 : 10} className="text-center py-8 text-slate-400">
-                    No power failure records found for this selection. Click "+ Add Power Failure Row" to start.
+                    No power failure records found for this selection (Period:{" "}
+                    <span className="font-bold capitalize">
+                      {activePeriod === "custom" ? customDate || "Selected Date" : activePeriod}
+                    </span>
+                    ). Click "+ Add Power Failure Row" to start.
                   </td>
                 </tr>
               ) : (
@@ -388,7 +401,7 @@ export const PowerFailureTable: React.FC = () => {
                             {isNew ? (
                               <button
                                 onClick={() => handleDelete(row.id)}
-                                className="text-rose-500 hover:text-rose-700 font-bold px-2"
+                                className="text-rose-500 hover:text-rose-700 font-bold px-2 cursor-pointer"
                               >
                                 ✕
                               </button>
@@ -396,13 +409,13 @@ export const PowerFailureTable: React.FC = () => {
                               <div className="flex items-center justify-center gap-1.5">
                                 <button
                                   onClick={() => handleSaveEdit(row.id)}
-                                  className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold"
+                                  className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer"
                                 >
                                   Save
                                 </button>
                                 <button
                                   onClick={() => setEditingId(null)}
-                                  className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+                                  className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer"
                                 >
                                   Cancel
                                 </button>
@@ -439,13 +452,13 @@ export const PowerFailureTable: React.FC = () => {
                           <div className="flex items-center justify-center gap-2">
                             <button
                               onClick={() => startEdit(row)}
-                              className="px-3 py-1 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg font-bold text-xs transition"
+                              className="px-3 py-1 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg font-bold text-xs transition cursor-pointer"
                             >
                               Edit
                             </button>
                             <button
                               onClick={() => handleDelete(row.id)}
-                              className="px-3 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-bold text-xs transition"
+                              className="px-3 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-bold text-xs transition cursor-pointer"
                             >
                               Delete
                             </button>
@@ -465,7 +478,7 @@ export const PowerFailureTable: React.FC = () => {
       <div className="flex gap-3 mt-4">
         <button
           onClick={handleAddRow}
-          className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition"
+          className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition cursor-pointer"
         >
           + Add Power Failure Row
         </button>
@@ -473,7 +486,7 @@ export const PowerFailureTable: React.FC = () => {
           <button
             onClick={handleSaveAll}
             disabled={saving}
-            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50"
+            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50 cursor-pointer"
           >
             {saving ? "Saving..." : "💾 Save Records to Database"}
           </button>

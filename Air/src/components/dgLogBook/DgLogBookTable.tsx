@@ -196,7 +196,7 @@ const DgLogRow: React.FC<{
               <button
                 onClick={() => onRemove(row.id)}
                 title="Cancel Row"
-                className="text-rose-500 hover:text-rose-700 font-bold px-2 py-1"
+                className="text-rose-500 hover:text-rose-700 font-bold px-2 py-1 cursor-pointer"
               >
                 ✕
               </button>
@@ -205,7 +205,7 @@ const DgLogRow: React.FC<{
                 <button
                   onClick={handleSave}
                   disabled={updating}
-                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition"
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
                 >
                   {updating ? "..." : "Save"}
                 </button>
@@ -214,7 +214,7 @@ const DgLogRow: React.FC<{
                     setIsEditing(false);
                     setEditData({ ...row });
                   }}
-                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition"
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -253,13 +253,13 @@ const DgLogRow: React.FC<{
           <div className="flex items-center justify-center gap-2">
             <button
               onClick={() => setIsEditing(true)}
-              className="px-3 py-1 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg font-bold text-xs transition shadow-2xs"
+              className="px-3 py-1 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg font-bold text-xs transition shadow-2xs cursor-pointer"
             >
               Edit
             </button>
             <button
               onClick={() => onRemove(row.id)}
-              className="px-3 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-bold text-xs transition shadow-2xs"
+              className="px-3 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-bold text-xs transition shadow-2xs cursor-pointer"
             >
               Delete
             </button>
@@ -278,6 +278,7 @@ export const DgLogBookTable: React.FC = () => {
   const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [shift, setShift] = useState<string>(isAdmin ? "A" : (user?.assignedShift || "A"));
   const [activePeriod, setActivePeriod] = useState<TimeFilterPeriod>("today");
+  const [customDate, setCustomDate] = useState<string>("");
   const [allLogs, setAllLogs] = useState<any[]>([]);
   const [rows, setRows] = useState<DgEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -309,9 +310,10 @@ export const DgLogBookTable: React.FC = () => {
     }
     const filtered = allLogs.filter((e: any) => {
       const matchShift = isAdmin ? e.shift === shift : true;
-      return activePeriod === "today"
-        ? matchShift && e.date === date
-        : matchShift && isDateInPeriod(e.date, activePeriod);
+      if (activePeriod === "today") {
+        return matchShift && e.date === date;
+      }
+      return matchShift && isDateInPeriod(e.date, activePeriod, customDate);
     });
 
     setRows(
@@ -338,7 +340,7 @@ export const DgLogBookTable: React.FC = () => {
         operatorSign: e.operatorName || ""
       }))
     );
-  }, [allLogs, shift, activePeriod, date, isAdmin]);
+  }, [allLogs, shift, activePeriod, date, customDate, isAdmin]);
 
   const periodCounts = useMemo(() => {
     if (!Array.isArray(allLogs)) return { today: 0, week: 0, month: 0, year: 0 };
@@ -372,11 +374,13 @@ export const DgLogBookTable: React.FC = () => {
   };
 
   const handleAddRow = () => {
+    const selectedDate = activePeriod === "custom" && customDate ? customDate : date;
+
     setRows((prev) => [
       ...prev,
       {
         id: `temp-${Date.now()}`,
-        date,
+        date: selectedDate,
         shift: isAdmin ? shift : user?.assignedShift,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         waterTemp: "",
@@ -463,7 +467,7 @@ export const DgLogBookTable: React.FC = () => {
         await API.post("/plant/logs", {
           blockType: activeUnit,
           shift: isAdmin ? shift : user?.assignedShift,
-          date: entry.date || date,
+          date: entry.date || (activePeriod === "custom" && customDate ? customDate : date),
           readingTime: entry.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           data: {
             waterTemp: entry.waterTemp,
@@ -521,7 +525,13 @@ export const DgLogBookTable: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <TimeFilterTabs activePeriod={activePeriod} onPeriodChange={setActivePeriod} counts={periodCounts} />
+            <TimeFilterTabs
+              activePeriod={activePeriod}
+              onPeriodChange={setActivePeriod}
+              counts={periodCounts}
+              customDate={customDate}
+              onCustomDateChange={setCustomDate}
+            />
             {statusMsg && (
               <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100">
                 {statusMsg}
@@ -530,7 +540,7 @@ export const DgLogBookTable: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. DATE & SHIFT CARD (Clean Air Compressor Styling) */}
+        {/* 3. DATE & SHIFT CARD */}
         <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-200/60 mb-5 flex flex-wrap items-center gap-6">
           <div className="flex items-center gap-2">
             <label className="text-xs font-bold text-slate-600">Date:</label>
@@ -538,7 +548,7 @@ export const DgLogBookTable: React.FC = () => {
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs bg-white font-semibold focus:outline-none focus:border-indigo-500"
+              className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs bg-white font-semibold focus:outline-none focus:border-indigo-500 cursor-pointer"
             />
           </div>
 
@@ -594,8 +604,12 @@ export const DgLogBookTable: React.FC = () => {
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={isAdmin ? 16 : 15} className="text-center py-8 text-slate-400">
-                      No readings found for {DG_UNITS.find((u) => u.id === activeUnit)?.label} (Period: <span className="font-bold capitalize">{activePeriod}</span>, Shift {shift}).
-                      {activePeriod === "today" && ' Click "+ Add Reading Row" to start.'}
+                      No readings found for {DG_UNITS.find((u) => u.id === activeUnit)?.label} (Period:{" "}
+                      <span className="font-bold capitalize">
+                        {activePeriod === "custom" ? customDate || "Selected Date" : activePeriod}
+                      </span>
+                      , Shift {shift}).
+                      {(activePeriod === "today" || activePeriod === "custom") && ' Click "+ Add Reading Row" to start.'}
                     </td>
                   </tr>
                 ) : (
@@ -617,7 +631,7 @@ export const DgLogBookTable: React.FC = () => {
         )}
 
         {/* 5. ACTION BUTTONS */}
-        {activePeriod === "today" && (
+        {(activePeriod === "today" || activePeriod === "custom") && (
           <div className="flex items-center gap-3 mt-4">
             <button
               onClick={handleAddRow}
@@ -637,7 +651,7 @@ export const DgLogBookTable: React.FC = () => {
           </div>
         )}
 
-        {/* 6. STATS SUMMARY CARDS (Air Compressor Pramane 3 Cards) */}
+        {/* 6. STATS SUMMARY CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 pt-4 border-t border-slate-100">
           <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-4 text-center">
             <span className="text-[10px] font-black tracking-wider text-blue-600 uppercase">
