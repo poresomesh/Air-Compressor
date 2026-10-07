@@ -3,6 +3,7 @@ import type { ChillingEntry } from "../types/chillingCompressor";
 export interface ChillingStats {
   deltaT: string;
   totalKwh: string;
+  totalEnergyConsumed: string;
   totalRunHours: string;
 }
 
@@ -11,15 +12,16 @@ export const calculateChillingStats = (rows: ChillingEntry[]): ChillingStats => 
     return {
       deltaT: "0",
       totalKwh: "0",
+      totalEnergyConsumed: "0",
       totalRunHours: "0"
     };
   }
 
-  // शेवटची (सध्याची/करंट) रो शोधणे जिथे डेटा भरला आहे
+  // Valid / Latest row shodha
   const validRows = rows.filter(r => r.kwh !== "" || r.runHours !== "");
   const latestRow = validRows.length > 0 ? validRows[validRows.length - 1] : rows[rows.length - 1];
 
-  // 1. Chiller Delta T
+  // 1. Chiller Delta T (Inlet - Outlet)
   let deltaT = "0";
   if (latestRow?.chillerInlet && latestRow?.chillerOutlet) {
     const inlet = parseFloat(String(latestRow.chillerInlet));
@@ -29,15 +31,16 @@ export const calculateChillingStats = (rows: ChillingEntry[]): ChillingStats => 
     }
   }
 
-  // 2. Current KWH (करंट टाकलेला आकडा जसाच्या तसा)
+  // 2. Current KWH
   const currentKwh = latestRow?.kwh ? String(latestRow.kwh) : "0";
 
-  // 3. Current Run Hours (करंट टाकलेले तास जसेच्या तसे)
+  // 3. Current Run Hours
   const currentRunHours = latestRow?.runHours ? String(latestRow.runHours) : "0";
 
   return {
     deltaT,
     totalKwh: currentKwh,
+    totalEnergyConsumed: currentKwh,
     totalRunHours: currentRunHours
   };
 };
